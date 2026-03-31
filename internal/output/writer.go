@@ -27,7 +27,7 @@ type csvWriter struct {
 }
 
 func (w *csvWriter) WriteHeader() error {
-	return w.writer.Write([]string{"domain", "hasMX", "hasSPF", "spfRecord", "hasDMARC", "dmarcRecord"})
+	return w.writer.Write([]string{"domain", "hasMX", "hasSPF", "spfRecord", "hasDMARC", "dmarcRecord", "scoreTotal"})
 }
 
 func (w *csvWriter) WriteResult(result checker.DomainResult) error {
@@ -38,9 +38,17 @@ func (w *csvWriter) WriteResult(result checker.DomainResult) error {
 		result.SPFRecord,
 		strconv.FormatBool(result.HasDMARC),
 		result.DMARCRecord,
+		scoreTotal(result),
 	}
 
 	return w.writer.Write(row)
+}
+
+func scoreTotal(result checker.DomainResult) string {
+	if result.Score == nil {
+		return ""
+	}
+	return strconv.Itoa(result.Score.Total)
 }
 
 func (w *csvWriter) Flush() error {
