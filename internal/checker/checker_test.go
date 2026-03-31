@@ -212,6 +212,12 @@ func TestCheckDomainDKIMLintAndScore(t *testing.T) {
 				return []string{"v=spf1 include:_spf.example.com ~all"}, nil
 			case "_dmarc.example.com":
 				return []string{"v=DMARC1; p=none"}, nil
+			case "default._bimi.example.com":
+				return []string{"v=BIMI1; l=https://example.com/logo.svg"}, nil
+			case "_mta-sts.example.com":
+				return []string{"v=STSv1; id=20260331"}, nil
+			case "_smtp._tls.example.com":
+				return []string{"v=TLSRPTv1; rua=mailto:tlsrpt@example.com"}, nil
 			case "default._domainkey.example.com":
 				return []string{"v=DKIM1; k=rsa; p=abc"}, nil
 			default:
@@ -242,11 +248,21 @@ func TestCheckDomainDKIMLintAndScore(t *testing.T) {
 	if len(result.DKIM) != 1 || !result.DKIM[0].Found {
 		t.Fatalf("expected found DKIM selector, got %+v", result.DKIM)
 	}
+	if !result.HasBIMI || !result.HasMTASTS || !result.HasTLSRPT {
+		t.Fatalf("expected BIMI/MTA-STS/TLS-RPT true, got bimi=%t mta-sts=%t tls-rpt=%t", result.HasBIMI, result.HasMTASTS, result.HasTLSRPT)
+	}
 	if len(result.Findings) == 0 {
 		t.Fatal("expected lint findings")
 	}
 	if result.Score == nil || result.Score.Total <= 0 {
 		t.Fatalf("expected score, got %+v", result.Score)
+	}
+}
+
+func TestCountRecordsByPrefix(t *testing.T) {
+	records := []string{"v=spf1 -all", "V=SPF1 include:_spf.example.com ~all", "something"}
+	if got := countRecordsByPrefix(records, "v=spf1"); got != 2 {
+		t.Fatalf("countRecordsByPrefix() = %d, want 2", got)
 	}
 }
 

@@ -113,6 +113,7 @@ func (s *Service) checkDomain(domain string) (DomainResult, error) {
 	if err != nil {
 		errs = append(errs, fmt.Sprintf("spf: %v", err))
 	}
+	spfCount := countRecordsByPrefix(txtRecords, "v=spf1")
 	if spfRecord, ok := findRecordByPrefix(txtRecords, "v=spf1"); ok {
 		result.HasSPF = true
 		result.SPFRecord = spfRecord
@@ -127,6 +128,30 @@ func (s *Service) checkDomain(domain string) (DomainResult, error) {
 		result.DMARCRecord = dmarcRecord
 	}
 
+	bimiRecords, err := s.dns.LookupTXT(ctx, "default._bimi."+domain)
+	if err == nil {
+		if bimiRecord, ok := findRecordByPrefix(bimiRecords, "v=BIMI1"); ok {
+			result.HasBIMI = true
+			result.BIMIRecord = bimiRecord
+		}
+	}
+
+	mtaSTSRecords, err := s.dns.LookupTXT(ctx, "_mta-sts."+domain)
+	if err == nil {
+		if mtaSTSRecord, ok := findRecordByPrefix(mtaSTSRecords, "v=STSv1"); ok {
+			result.HasMTASTS = true
+			result.MTASTSRecord = mtaSTSRecord
+		}
+	}
+
+	tlsRPTRecords, err := s.dns.LookupTXT(ctx, "_smtp._tls."+domain)
+	if err == nil {
+		if tlsRPTRecord, ok := findRecordByPrefix(tlsRPTRecords, "v=TLSRPTv1"); ok {
+			result.HasTLSRPT = true
+			result.TLSRPTRecord = tlsRPTRecord
+		}
+	}
+
 	if s.enableDKIM {
 		result.DKIM = s.checkDKIM(ctx, domain)
 	}
@@ -134,12 +159,16 @@ func (s *Service) checkDomain(domain string) (DomainResult, error) {
 	var lintFindings []lint.Finding
 	if s.enableLint || s.enableScore {
 		lintFindings = lint.Evaluate(lint.Signals{
-			HasMX:       result.HasMX,
-			HasSPF:      result.HasSPF,
-			SPFRecord:   result.SPFRecord,
-			HasDMARC:    result.HasDMARC,
-			DMARCRecord: result.DMARCRecord,
-			HasAnyDKIM:  hasAnyDKIM(result.DKIM),
+			HasMX:          result.HasMX,
+			HasSPF:         result.HasSPF,
+			SPFRecord:      result.SPFRecord,
+			SPFRecordCount: spfCount,
+			HasDMARC:       result.HasDMARC,
+			DMARCRecord:    result.DMARCRecord,
+			HasAnyDKIM:     hasAnyDKIM(result.DKIM),
+			HasBIMI:        result.HasBIMI,
+			HasMTASTS:      result.HasMTASTS,
+			HasTLSRPT:      result.HasTLSRPT,
 		})
 	}
 
@@ -224,12 +253,23 @@ func calculateScore(result DomainResult) ScoreBreakdown {
 	if result.HasDMARC {
 		auth += 15
 	}
+	if result.HasBIMI {
+		auth += 5
+	}
 	if hasAnyDKIM(result.DKIM) {
 		auth += 20
 	}
 
 	policy := 20
 	reporting := 20
+
+	if result.HasMTASTS {
+		reporting += 6
+	}
+	if result.HasTLSRPT {
+		reporting += 4
+	}
+
 	for _, finding := range result.Findings {
 		switch finding.Severity {
 		case SeverityError:
@@ -310,4 +350,16 @@ func findRecordByPrefix(records []string, prefix string) (string, bool) {
 	}
 
 	return "", false
+}
+
+func countRecordsByPrefix(records []string, prefix string) int {
+	normalizedPrefix := strings.ToLower(prefix)
+	count := 0
+	for _, record := range records {
+		trimmedRecord := strings.TrimSpace(record)
+		if strings.HasPrefix(strings.ToLower(trimmedRecord), normalizedPrefix) {
+			count++
+		}
+	}
+	return count
 }
