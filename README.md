@@ -1,52 +1,61 @@
 # Email Checker Tool
 
-A lightweight Go CLI that reads domains from standard input and checks for:
+A stdlib-only Go CLI for checking domain email DNS posture at scale.
+
+For each domain, it checks:
 
 - MX record presence
 - SPF TXT record presence (`v=spf1`)
 - DMARC TXT record presence (`v=DMARC1` under `_dmarc.<domain>`)
 
-It is intentionally stdlib-only and ready to run in pipelines.
+The tool supports concurrent workers, per-domain timeout, and CSV/JSON output.
 
 ## Requirements
 
 - Go 1.26+
 
-## Install
+## Project Layout
+
+```text
+cmd/email-checker/main.go      # CLI entrypoint
+internal/input/reader.go       # Domain input parsing and normalization
+internal/checker/              # DNS checker, worker pool, timeout, result models
+internal/output/writer.go      # CSV/JSON output writers
+```
+
+## Build
 
 ```bash
-go build -o email-checker-tool .
+go build -o email-checker ./cmd/email-checker
 ```
 
 ## Usage
 
-Pipe domains into the binary:
-
 ```bash
-printf "google.com\nexample.com\n" | ./email-checker-tool
+printf "google.com\nexample.com\n" | ./email-checker
 ```
 
 ### Flags
 
 - `-format csv|json` Output format (default: `csv`)
+- `-workers int` Number of concurrent workers (default: number of CPUs)
+- `-timeout duration` Per-domain timeout (default: `3s`)
 
-## Output Examples
-
-### CSV (default)
+### CSV Output (default)
 
 ```csv
 domain,hasMX,hasSPF,spfRecord,hasDMARC,dmarcRecord
-google.com,true,true,v=spf1 include:_spf.google.com ~all,true,v=DMARC1; p=reject; rua=mailto:mailauth-reports@google.com
+google.com,true,true,v=spf1 include:_spf.google.com ~all,true,v=DMARC1; p=reject
 ```
 
-### JSON
+### JSON Output
 
 ```bash
-printf "google.com\n" | ./email-checker-tool -format json
+printf "google.com\n" | ./email-checker -format json
 ```
 
 ```json
-{"domain":"google.com","hasMX":true,"hasSPF":true,"spfRecord":"v=spf1 include:_spf.google.com ~all","hasDMARC":true,"dmarcRecord":"v=DMARC1; p=reject; rua=mailto:mailauth-reports@google.com"}
+{"domain":"google.com","hasMX":true,"hasSPF":true,"spfRecord":"v=spf1 include:_spf.google.com ~all","hasDMARC":true,"dmarcRecord":"v=DMARC1; p=reject"}
 ```
 
 ## Development
@@ -56,9 +65,16 @@ go test ./...
 go build ./...
 ```
 
-## Roadmap
+## Notes
 
-- Add `-workers` for concurrent DNS checks
-- Add `-timeout` for per-domain lookup limits
-- Add optional resolver override (custom DNS server)
-- Add summary output mode for pass/fail totals
+- Results preserve input order even when workers run concurrently.
+- Timeout applies to the whole domain check, not each lookup independently.
+- On partial lookup failures, the tool still outputs available data and logs warnings.
+
+## Feature Roadmap
+
+- Add `-resolver` flag to use a custom DNS server
+- Add DKIM selector checks and BIMI record checks
+- Add SPF/DMARC policy linting mode
+- Add aggregate summary mode with pass/fail counts
+- Add GitHub Actions CI with race detector and static analysis
