@@ -1,29 +1,47 @@
 # Email Checker Tool
 
-A stdlib-only Go CLI for checking domain email DNS posture at scale.
+[![CI](https://github.com/pouyasadri/email-checker-tool/actions/workflows/ci.yml/badge.svg)](https://github.com/pouyasadri/email-checker-tool/actions/workflows/ci.yml)
+[![GHCR](https://img.shields.io/badge/GHCR-ghcr.io%2Fpouyasadri%2Femail--checker--tool-2ea44f?logo=docker)](https://github.com/pouyasadri/email-checker-tool/pkgs/container/email-checker-tool)
 
-For each domain, it checks:
+`email-checker` is a stdlib-first Go CLI for auditing domain email DNS posture at scale. It is designed for pipelines and batch processing, with deterministic output ordering, concurrent workers, and machine-readable reporting.
 
-- MX record presence
-- SPF TXT record presence (`v=spf1`)
-- DMARC TXT record presence (`v=DMARC1` under `_dmarc.<domain>`)
-- BIMI TXT record presence (`v=BIMI1` under `default._bimi.<domain>`)
-- MTA-STS TXT record presence (`v=STSv1` under `_mta-sts.<domain>`)
-- TLS-RPT TXT record presence (`v=TLSRPTv1` under `_smtp._tls.<domain>`)
+## What It Checks
 
-The tool supports concurrent workers, per-domain timeout, CSV/JSON output, lint findings, scoring, DKIM selector checks, summary stats, and machine-readable reports.
+- Core mail DNS: MX, SPF, DMARC
+- Extended posture: DKIM selectors, BIMI, MTA-STS, TLS-RPT
+- Policy quality: SPF/DMARC lint rules with severity and remediation hints
+- Security score: weighted score with per-category breakdown
+
+## Runtime Flow
+
+```mermaid
+flowchart TD
+  A[stdin domains] --> B[Normalize + de-blank]
+  B --> C[Worker pool]
+  C --> D[Per-domain timeout context]
+  D --> E[DNS checks: MX SPF DMARC BIMI MTA-STS TLS-RPT DKIM]
+  E --> F[Lint engine]
+  F --> G[Scoring engine]
+  G --> H[Ordered result merge by input index]
+  H --> I[CSV/JSON output]
+  H --> J[Summary to stderr]
+  H --> K[JSON/SARIF report file]
+```
 
 ## Requirements
 
-- Go 1.26+
+- Go `1.26+`
 
 ## Project Layout
 
 ```text
-cmd/email-checker/main.go      # CLI entrypoint
-internal/input/reader.go       # Domain input parsing and normalization
-internal/checker/              # DNS checker, worker pool, timeout, result models
-internal/output/writer.go      # CSV/JSON output writers
+cmd/email-checker/main.go         # CLI flags, orchestration
+internal/input/reader.go          # input parsing + normalization
+internal/checker/                 # DNS resolver, worker pool, checks, scoring
+internal/lint/lint.go             # SPF/DMARC and ecosystem lint rules
+internal/output/writer.go         # CSV/JSON stream writers
+internal/report/report.go         # summary + JSON/SARIF report generation
+.github/workflows/ci.yml          # CI + GHCR image publish
 ```
 
 ## Build
@@ -32,51 +50,38 @@ internal/output/writer.go      # CSV/JSON output writers
 go build -o email-checker ./cmd/email-checker
 ```
 
-## Usage
+## Quick Start
 
 ```bash
 printf "google.com\nexample.com\n" | ./email-checker
 ```
 
-### Flags
+## Flags
 
-- `-format csv|json` Output format (default: `csv`)
-- `-workers int` Number of concurrent workers (default: number of CPUs)
-- `-timeout duration` Per-domain timeout (default: `3s`)
-- `-resolver host:port` Custom DNS resolver, e.g. `1.1.1.1:53`
+- `-format csv|json` output format (default: `csv`)
+- `-workers int` number of workers (default: CPU count)
+- `-timeout duration` per-domain timeout (default: `3s`)
+- `-resolver host:port` custom DNS resolver (example: `1.1.1.1:53`)
 - `-resolver-proto udp|tcp` DNS transport (default: `udp`)
-- `-check-dkim` Enable DKIM selector checks
-- `-dkim-selectors` Comma-separated selectors (default common set)
-- `-lint` Enable SPF/DMARC lint findings
-- `-score` Enable weighted security score
-- `-summary` Emit aggregate summary to stderr
-- `-summary-format text|json` Summary format (default: `text`)
-- `-failures-only` Only emit failed domains
-- `-report-file path` Write full report to file
-- `-report-format json|sarif` Report format (default: `json`)
+- `-check-dkim` enable DKIM selector checks
+- `-dkim-selectors` comma-separated selectors (default: common selectors)
+- `-lint` enable lint findings
+- `-score` enable score computation
+- `-summary` emit aggregate summary to stderr
+- `-summary-format text|json` summary format (default: `text`)
+- `-failures-only` emit only failed domains
+- `-report-file <path>` write full report to file
+- `-report-format json|sarif` report format (default: `json`)
 
-### CSV Output (default)
+## Examples
 
-```csv
-domain,hasMX,hasSPF,spfRecord,hasDMARC,dmarcRecord,hasBIMI,bimiRecord,hasMTASTS,mtaSTSRecord,hasTLSRPT,tlsRPTRecord,scoreTotal
-google.com,true,true,v=spf1 include:_spf.google.com ~all,true,v=DMARC1; p=reject,false,,true,v=STSv1; id=20260331,true,v=TLSRPTv1; rua=mailto:tls@example.com,92
-```
-
-### JSON Output
-
-```bash
-printf "google.com\n" | ./email-checker -format json
-```
-
-```json
-{"domain":"google.com","hasMX":true,"hasSPF":true,"spfRecord":"v=spf1 include:_spf.google.com ~all","hasDMARC":true,"dmarcRecord":"v=DMARC1; p=reject"}
-```
-
-### Full Security Scan Example
+Run a deeper scan and export JSON report:
 
 ```bash
 printf "google.com\nexample.com\n" | ./email-checker \
   -format json \
+  -workers 8 \
+  -timeout 4s \
   -check-dkim \
   -dkim-selectors "default,selector1,google" \
   -lint \
@@ -87,16 +92,45 @@ printf "google.com\nexample.com\n" | ./email-checker \
   -report-format json
 ```
 
-## Notes
+Use custom resolver and export SARIF:
 
-- Results preserve input order even when workers run concurrently.
-- Timeout applies to the whole domain check, not each lookup independently.
-- On partial lookup failures, the tool still outputs available data and logs warnings.
-- Lint findings include severity and remediation hints.
-- SARIF output enables upload into code scanning style tooling.
-- Golden test fixtures cover JSON and SARIF report outputs.
+```bash
+printf "example.com\n" | ./email-checker \
+  -resolver 1.1.1.1:53 \
+  -resolver-proto udp \
+  -lint \
+  -report-file report.sarif \
+  -report-format sarif
+```
 
-## Development
+## Output
+
+CSV header (default):
+
+```csv
+domain,hasMX,hasSPF,spfRecord,hasDMARC,dmarcRecord,hasBIMI,bimiRecord,hasMTASTS,mtaSTSRecord,hasTLSRPT,tlsRPTRecord,scoreTotal
+```
+
+JSON stream mode (`-format json`) emits one JSON object per domain.
+
+## Lint Coverage (Current)
+
+- SPF: missing, multiple records, `+all`, `~all`, no terminal `all`, `ptr` usage
+- DMARC: missing, missing `p=`, `p=none`, missing `rua`, missing `ruf`, low `pct`
+- Ecosystem: missing DKIM, BIMI, MTA-STS, TLS-RPT
+
+## CI/CD
+
+GitHub Actions workflow in `.github/workflows/ci.yml` runs:
+
+- format check (`gofmt -l .`)
+- `go vet ./...`
+- `go test ./...`
+- `go test -race ./...`
+- `go build ./...`
+- Docker image publish to `ghcr.io/<owner>/email-checker-tool` (on `main/master` pushes and tags)
+
+## Local Development
 
 ```bash
 go test ./...
@@ -104,12 +138,16 @@ go test -race ./...
 go build ./...
 ```
 
-CI is configured in `.github/workflows/ci.yml` and runs formatting, vet, tests, race tests, and build.
+## Notes
 
-## Advanced Roadmap
+- Output order always follows input order, even with concurrent workers.
+- Timeout is applied per entire domain check (not per individual lookup).
+- Partial lookup failures still produce rows with available fields.
+- Golden fixtures validate JSON and SARIF report stability.
 
-- BIMI TXT validation and logo URI sanity checks
-- MTA-STS and TLS-RPT policy checks
-- SPF include-chain depth checks and flattening advice
-- Configurable scoring profile presets (strict, balanced, relaxed)
-- Multi-output run mode (CSV to stdout + JSON report file)
+## Next Enhancements
+
+- BIMI content validation (`l=`/`a=` quality checks)
+- HTTPS fetch validation for MTA-STS policy files
+- TLS-RPT `rua` URI validation and stronger diagnostics
+- Scoring profiles (`strict`, `balanced`, `relaxed`)
