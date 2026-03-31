@@ -29,7 +29,7 @@ func TestNewWriterCSV(t *testing.T) {
 	}
 
 	out := buf.String()
-	if !strings.Contains(out, "domain,hasMX,hasSPF,spfRecord,hasDMARC,dmarcRecord,scoreTotal") {
+	if !strings.Contains(out, "domain,hasMX,hasSPF,spfRecord,hasDMARC,dmarcRecord,hasBIMI,bimiRecord,hasMTASTS,mtaSTSRecord,hasTLSRPT,tlsRPTRecord,scoreTotal") {
 		t.Fatalf("missing CSV header in output: %q", out)
 	}
 	if !strings.Contains(out, "example.com,true,true") {

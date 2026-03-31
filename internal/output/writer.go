@@ -27,7 +27,21 @@ type csvWriter struct {
 }
 
 func (w *csvWriter) WriteHeader() error {
-	return w.writer.Write([]string{"domain", "hasMX", "hasSPF", "spfRecord", "hasDMARC", "dmarcRecord", "scoreTotal"})
+	return w.writer.Write([]string{
+		"domain",
+		"hasMX",
+		"hasSPF",
+		"spfRecord",
+		"hasDMARC",
+		"dmarcRecord",
+		"hasBIMI",
+		"bimiRecord",
+		"hasMTASTS",
+		"mtaSTSRecord",
+		"hasTLSRPT",
+		"tlsRPTRecord",
+		"scoreTotal",
+	})
 }
 
 func (w *csvWriter) WriteResult(result checker.DomainResult) error {
@@ -38,6 +52,12 @@ func (w *csvWriter) WriteResult(result checker.DomainResult) error {
 		result.SPFRecord,
 		strconv.FormatBool(result.HasDMARC),
 		result.DMARCRecord,
+		strconv.FormatBool(result.HasBIMI),
+		result.BIMIRecord,
+		strconv.FormatBool(result.HasMTASTS),
+		result.MTASTSRecord,
+		strconv.FormatBool(result.HasTLSRPT),
+		result.TLSRPTRecord,
 		scoreTotal(result),
 	}
 
