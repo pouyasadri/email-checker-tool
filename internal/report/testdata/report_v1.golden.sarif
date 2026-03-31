@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "runs": [
+    {
+      "results": [
+        {
+          "ruleId": "SPF_MISSING",
+          "level": "error",
+          "message": {
+            "text": "SPF record not found"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "weak.example"
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "tool": {
+        "driver": {
+          "name": "email-checker-tool"
+        }
+      }
+    }
+  ],
+  "version": "2.1.0"
+}

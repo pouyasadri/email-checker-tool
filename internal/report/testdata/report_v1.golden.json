@@ -1,0 +1,57 @@
+{
+  "version": "v1",
+  "summary": {
+    "total": 2,
+    "lookupErrors": 1,
+    "failures": 1,
+    "mxPresent": 2,
+    "spfPresent": 1,
+    "dmarcPresent": 1,
+    "bimiPresent": 1,
+    "mtaSTSPresent": 1,
+    "tlsRPTPresent": 1,
+    "dkimAnyPresent": 1
+  },
+  "results": [
+    {
+      "index": 0,
+      "domain": "secure.example",
+      "hasMX": true,
+      "hasSPF": true,
+      "spfRecord": "v=spf1 -all",
+      "hasDMARC": true,
+      "dmarcRecord": "v=DMARC1; p=reject; rua=mailto:dmarc@example.com",
+      "hasBIMI": true,
+      "bimiRecord": "v=BIMI1; l=https://example.com/logo.svg",
+      "hasMTASTS": true,
+      "mtaSTSRecord": "v=STSv1; id=20260331",
+      "hasTLSRPT": true,
+      "tlsRPTRecord": "v=TLSRPTv1; rua=mailto:tls@example.com",
+      "dkim": [
+        {
+          "selector": "default",
+          "found": true,
+          "record": "v=DKIM1; p=abc"
+        }
+      ]
+    },
+    {
+      "index": 1,
+      "domain": "weak.example",
+      "hasMX": true,
+      "hasSPF": false,
+      "hasDMARC": false,
+      "hasBIMI": false,
+      "hasMTASTS": false,
+      "hasTLSRPT": false,
+      "findings": [
+        {
+          "code": "SPF_MISSING",
+          "severity": "error",
+          "message": "SPF record not found"
+        }
+      ],
+      "lookupError": "spf lookup failed"
+    }
+  ]
+}
