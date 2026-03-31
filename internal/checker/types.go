@@ -30,15 +30,21 @@ type ScoreBreakdown struct {
 }
 
 type DomainResult struct {
-	Domain      string          `json:"domain"`
-	HasMX       bool            `json:"hasMX"`
-	HasSPF      bool            `json:"hasSPF"`
-	SPFRecord   string          `json:"spfRecord,omitempty"`
-	HasDMARC    bool            `json:"hasDMARC"`
-	DMARCRecord string          `json:"dmarcRecord,omitempty"`
-	DKIM        []DKIMCheck     `json:"dkim,omitempty"`
-	Findings    []Finding       `json:"findings,omitempty"`
-	Score       *ScoreBreakdown `json:"score,omitempty"`
+	Domain       string          `json:"domain"`
+	HasMX        bool            `json:"hasMX"`
+	HasSPF       bool            `json:"hasSPF"`
+	SPFRecord    string          `json:"spfRecord,omitempty"`
+	HasDMARC     bool            `json:"hasDMARC"`
+	DMARCRecord  string          `json:"dmarcRecord,omitempty"`
+	HasBIMI      bool            `json:"hasBIMI"`
+	BIMIRecord   string          `json:"bimiRecord,omitempty"`
+	HasMTASTS    bool            `json:"hasMTASTS"`
+	MTASTSRecord string          `json:"mtaSTSRecord,omitempty"`
+	HasTLSRPT    bool            `json:"hasTLSRPT"`
+	TLSRPTRecord string          `json:"tlsRPTRecord,omitempty"`
+	DKIM         []DKIMCheck     `json:"dkim,omitempty"`
+	Findings     []Finding       `json:"findings,omitempty"`
+	Score        *ScoreBreakdown `json:"score,omitempty"`
 }
 
 type CheckResult struct {
