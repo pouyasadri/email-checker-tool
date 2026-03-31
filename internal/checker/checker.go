@@ -4,15 +4,22 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	"email-checker-tool/internal/lint"
 )
 
 type Service struct {
-	workers int
-	timeout time.Duration
-	dns     DNSResolver
+	workers       int
+	timeout       time.Duration
+	dns           DNSResolver
+	enableDKIM    bool
+	dkimSelectors []string
+	enableLint    bool
+	enableScore   bool
 }
 
 type job struct {
@@ -31,10 +38,19 @@ func NewService(cfg Config) (*Service, error) {
 		return nil, fmt.Errorf("dns resolver is required")
 	}
 
+	selectors := normalizeSelectors(cfg.DKIMSelectors)
+	if cfg.EnableDKIM && len(selectors) == 0 {
+		selectors = []string{"default", "selector1", "selector2", "google"}
+	}
+
 	return &Service{
-		workers: cfg.Workers,
-		timeout: cfg.Timeout,
-		dns:     cfg.DNS,
+		workers:       cfg.Workers,
+		timeout:       cfg.Timeout,
+		dns:           cfg.DNS,
+		enableDKIM:    cfg.EnableDKIM,
+		dkimSelectors: selectors,
+		enableLint:    cfg.EnableLint,
+		enableScore:   cfg.EnableScore,
 	}, nil
 }
 
@@ -111,6 +127,33 @@ func (s *Service) checkDomain(domain string) (DomainResult, error) {
 		result.DMARCRecord = dmarcRecord
 	}
 
+	if s.enableDKIM {
+		result.DKIM = s.checkDKIM(ctx, domain)
+	}
+
+	var lintFindings []lint.Finding
+	if s.enableLint || s.enableScore {
+		lintFindings = lint.Evaluate(lint.Signals{
+			HasMX:       result.HasMX,
+			HasSPF:      result.HasSPF,
+			SPFRecord:   result.SPFRecord,
+			HasDMARC:    result.HasDMARC,
+			DMARCRecord: result.DMARCRecord,
+			HasAnyDKIM:  hasAnyDKIM(result.DKIM),
+		})
+	}
+
+	if s.enableLint {
+		result.Findings = toCheckerFindings(lintFindings)
+	}
+
+	if s.enableScore {
+		temp := result
+		temp.Findings = toCheckerFindings(lintFindings)
+		score := calculateScore(temp)
+		result.Score = &score
+	}
+
 	if len(errs) > 0 {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			errs = append(errs, "timeout exceeded")
@@ -123,6 +166,138 @@ func (s *Service) checkDomain(domain string) (DomainResult, error) {
 	}
 
 	return result, nil
+}
+
+func (s *Service) checkDKIM(ctx context.Context, domain string) []DKIMCheck {
+	checks := make([]DKIMCheck, 0, len(s.dkimSelectors))
+	for _, selector := range s.dkimSelectors {
+		name := selector + "._domainkey." + domain
+		txtRecords, err := s.dns.LookupTXT(ctx, name)
+		if err != nil {
+			checks = append(checks, DKIMCheck{Selector: selector, Error: err.Error()})
+			continue
+		}
+
+		record, ok := findRecordByPrefix(txtRecords, "v=DKIM1")
+		if !ok {
+			checks = append(checks, DKIMCheck{Selector: selector, Found: false})
+			continue
+		}
+
+		checks = append(checks, DKIMCheck{Selector: selector, Found: true, Record: record})
+	}
+
+	return checks
+}
+
+func normalizeSelectors(raw []string) []string {
+	if len(raw) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]struct{}, len(raw))
+	selectors := make([]string, 0, len(raw))
+	for _, selector := range raw {
+		normalized := strings.ToLower(strings.TrimSpace(selector))
+		if normalized == "" {
+			continue
+		}
+		if _, exists := seen[normalized]; exists {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		selectors = append(selectors, normalized)
+	}
+
+	sort.Strings(selectors)
+	return selectors
+}
+
+func calculateScore(result DomainResult) ScoreBreakdown {
+	auth := 0
+	if result.HasMX {
+		auth += 10
+	}
+	if result.HasSPF {
+		auth += 15
+	}
+	if result.HasDMARC {
+		auth += 15
+	}
+	if hasAnyDKIM(result.DKIM) {
+		auth += 20
+	}
+
+	policy := 20
+	reporting := 20
+	for _, finding := range result.Findings {
+		switch finding.Severity {
+		case SeverityError:
+			policy -= 8
+			reporting -= 4
+		case SeverityWarn:
+			policy -= 4
+			reporting -= 2
+		}
+	}
+
+	if policy < 0 {
+		policy = 0
+	}
+	if reporting < 0 {
+		reporting = 0
+	}
+
+	total := auth + policy + reporting
+	if total > 100 {
+		total = 100
+	}
+
+	return ScoreBreakdown{
+		Total:          total,
+		Authentication: auth,
+		Policy:         policy,
+		Reporting:      reporting,
+	}
+}
+
+func hasAnyDKIM(checks []DKIMCheck) bool {
+	for _, check := range checks {
+		if check.Found {
+			return true
+		}
+	}
+	return false
+}
+
+func ResultHasFailure(result CheckResult) bool {
+	if result.Err != nil {
+		return true
+	}
+	for _, finding := range result.Findings {
+		if finding.Severity == SeverityWarn || finding.Severity == SeverityError {
+			return true
+		}
+	}
+	return false
+}
+
+func toCheckerFindings(items []lint.Finding) []Finding {
+	if len(items) == 0 {
+		return nil
+	}
+
+	findings := make([]Finding, 0, len(items))
+	for _, item := range items {
+		findings = append(findings, Finding{
+			Code:     item.Code,
+			Severity: item.Severity,
+			Message:  item.Message,
+			Hint:     item.Hint,
+		})
+	}
+
+	return findings
 }
 
 func findRecordByPrefix(records []string, prefix string) (string, bool) {

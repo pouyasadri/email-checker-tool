@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -197,5 +198,79 @@ func TestCheckDomainsNoDataRaceBasic(t *testing.T) {
 	defer mu.Unlock()
 	if len(seen) != 4 {
 		t.Fatalf("expected resolver called for all domains, got %d", len(seen))
+	}
+}
+
+func TestCheckDomainDKIMLintAndScore(t *testing.T) {
+	resolver := fakeDNSResolver{
+		mxFn: func(ctx context.Context, domain string) ([]*net.MX, error) {
+			return []*net.MX{{Host: "mx.example.com", Pref: 10}}, nil
+		},
+		txtFn: func(ctx context.Context, domain string) ([]string, error) {
+			switch domain {
+			case "example.com":
+				return []string{"v=spf1 include:_spf.example.com ~all"}, nil
+			case "_dmarc.example.com":
+				return []string{"v=DMARC1; p=none"}, nil
+			case "default._domainkey.example.com":
+				return []string{"v=DKIM1; k=rsa; p=abc"}, nil
+			default:
+				return nil, errors.New("not found")
+			}
+		},
+	}
+
+	svc, err := NewService(Config{
+		Workers:       1,
+		Timeout:       time.Second,
+		DNS:           resolver,
+		EnableDKIM:    true,
+		EnableLint:    true,
+		EnableScore:   true,
+		DKIMSelectors: []string{"default"},
+	})
+	if err != nil {
+		t.Fatalf("NewService() error: %v", err)
+	}
+
+	results := svc.CheckDomains([]string{"example.com"})
+	if len(results) != 1 {
+		t.Fatalf("len(results) = %d, want 1", len(results))
+	}
+
+	result := results[0]
+	if len(result.DKIM) != 1 || !result.DKIM[0].Found {
+		t.Fatalf("expected found DKIM selector, got %+v", result.DKIM)
+	}
+	if len(result.Findings) == 0 {
+		t.Fatal("expected lint findings")
+	}
+	if result.Score == nil || result.Score.Total <= 0 {
+		t.Fatalf("expected score, got %+v", result.Score)
+	}
+}
+
+func TestResultHasFailure(t *testing.T) {
+	noFailure := CheckResult{DomainResult: DomainResult{Domain: "ok.com"}}
+	if ResultHasFailure(noFailure) {
+		t.Fatal("expected no failure")
+	}
+
+	withErr := CheckResult{DomainResult: DomainResult{Domain: "e.com"}, Err: errors.New("dns")}
+	if !ResultHasFailure(withErr) {
+		t.Fatal("expected failure from error")
+	}
+
+	withWarn := CheckResult{DomainResult: DomainResult{Domain: "w.com", Findings: []Finding{{Code: "X", Severity: SeverityWarn}}}}
+	if !ResultHasFailure(withWarn) {
+		t.Fatal("expected failure from warning finding")
+	}
+}
+
+func TestNormalizeSelectors(t *testing.T) {
+	got := normalizeSelectors([]string{"  Default ", "selector1", "default", ""})
+	joined := strings.Join(got, ",")
+	if joined != "default,selector1" {
+		t.Fatalf("normalizeSelectors() = %q, want %q", joined, "default,selector1")
 	}
 }
