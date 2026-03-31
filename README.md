@@ -7,6 +7,9 @@ For each domain, it checks:
 - MX record presence
 - SPF TXT record presence (`v=spf1`)
 - DMARC TXT record presence (`v=DMARC1` under `_dmarc.<domain>`)
+- BIMI TXT record presence (`v=BIMI1` under `default._bimi.<domain>`)
+- MTA-STS TXT record presence (`v=STSv1` under `_mta-sts.<domain>`)
+- TLS-RPT TXT record presence (`v=TLSRPTv1` under `_smtp._tls.<domain>`)
 
 The tool supports concurrent workers, per-domain timeout, CSV/JSON output, lint findings, scoring, DKIM selector checks, summary stats, and machine-readable reports.
 
@@ -55,8 +58,8 @@ printf "google.com\nexample.com\n" | ./email-checker
 ### CSV Output (default)
 
 ```csv
-domain,hasMX,hasSPF,spfRecord,hasDMARC,dmarcRecord,scoreTotal
-google.com,true,true,v=spf1 include:_spf.google.com ~all,true,v=DMARC1; p=reject,92
+domain,hasMX,hasSPF,spfRecord,hasDMARC,dmarcRecord,hasBIMI,bimiRecord,hasMTASTS,mtaSTSRecord,hasTLSRPT,tlsRPTRecord,scoreTotal
+google.com,true,true,v=spf1 include:_spf.google.com ~all,true,v=DMARC1; p=reject,false,,true,v=STSv1; id=20260331,true,v=TLSRPTv1; rua=mailto:tls@example.com,92
 ```
 
 ### JSON Output
@@ -91,6 +94,7 @@ printf "google.com\nexample.com\n" | ./email-checker \
 - On partial lookup failures, the tool still outputs available data and logs warnings.
 - Lint findings include severity and remediation hints.
 - SARIF output enables upload into code scanning style tooling.
+- Golden test fixtures cover JSON and SARIF report outputs.
 
 ## Development
 
