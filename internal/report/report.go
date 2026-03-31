@@ -22,6 +22,9 @@ type Summary struct {
 	MXPresent      int `json:"mxPresent"`
 	SPFPresent     int `json:"spfPresent"`
 	DMARCPresent   int `json:"dmarcPresent"`
+	BIMIPresent    int `json:"bimiPresent"`
+	MTASTSPresent  int `json:"mtaSTSPresent"`
+	TLSRPTPresent  int `json:"tlsRPTPresent"`
 	DKIMAnyPresent int `json:"dkimAnyPresent"`
 }
 
@@ -42,6 +45,15 @@ func BuildSummary(results []checker.CheckResult) Summary {
 		}
 		if result.HasDMARC {
 			s.DMARCPresent++
+		}
+		if result.HasBIMI {
+			s.BIMIPresent++
+		}
+		if result.HasMTASTS {
+			s.MTASTSPresent++
+		}
+		if result.HasTLSRPT {
+			s.TLSRPTPresent++
 		}
 		for _, dkim := range result.DKIM {
 			if dkim.Found {
@@ -68,13 +80,16 @@ func WriteSummary(w io.Writer, format string, summary Summary) error {
 	case SummaryFormatText:
 		_, err := fmt.Fprintf(
 			w,
-			"total=%d failures=%d lookupErrors=%d mxPresent=%d spfPresent=%d dmarcPresent=%d dkimAnyPresent=%d\n",
+			"total=%d failures=%d lookupErrors=%d mxPresent=%d spfPresent=%d dmarcPresent=%d bimiPresent=%d mtaSTSPresent=%d tlsRPTPresent=%d dkimAnyPresent=%d\n",
 			summary.Total,
 			summary.Failures,
 			summary.LookupErrors,
 			summary.MXPresent,
 			summary.SPFPresent,
 			summary.DMARCPresent,
+			summary.BIMIPresent,
+			summary.MTASTSPresent,
+			summary.TLSRPTPresent,
 			summary.DKIMAnyPresent,
 		)
 		return err
@@ -87,20 +102,41 @@ func WriteSummary(w io.Writer, format string, summary Summary) error {
 }
 
 type JSONReport struct {
-	Version string                `json:"version"`
-	Summary Summary               `json:"summary"`
-	Results []checker.CheckResult `json:"results"`
+	Version string         `json:"version"`
+	Summary Summary        `json:"summary"`
+	Results []ReportResult `json:"results"`
+}
+
+type ReportResult struct {
+	Index int `json:"index"`
+	checker.DomainResult
+	LookupError string `json:"lookupError,omitempty"`
 }
 
 func WriteJSONReport(w io.Writer, results []checker.CheckResult) error {
 	report := JSONReport{
 		Version: "v1",
 		Summary: BuildSummary(results),
-		Results: results,
+		Results: toReportResults(results),
 	}
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(report)
+}
+
+func toReportResults(results []checker.CheckResult) []ReportResult {
+	items := make([]ReportResult, 0, len(results))
+	for _, result := range results {
+		item := ReportResult{
+			Index:        result.Index,
+			DomainResult: result.DomainResult,
+		}
+		if result.Err != nil {
+			item.LookupError = result.Err.Error()
+		}
+		items = append(items, item)
+	}
+	return items
 }
 
 func WriteSARIFReport(w io.Writer, results []checker.CheckResult) error {
